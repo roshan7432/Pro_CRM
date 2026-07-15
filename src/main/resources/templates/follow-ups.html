@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Follow-Ups</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f8f9fa;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #343a40;
+            color: white;
+            flex-shrink: 0;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #495057;
+            margin-bottom: 10px;
+        }
+        .sidebar a {
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 12px 20px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            color: white;
+            background-color: #495057;
+            border-left: 4px solid #0d6efd;
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        .logout-container {
+            margin-top: auto;
+            border-top: 1px solid #495057;
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar-container"></div>
+
+<div class="main-content">
+    <div class="container-fluid">
+        <h2 class="mb-4">Follow-Ups Management</h2>
+
+        <button class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#followupModal" id="addFollowupBtn">Add New Follow-Up</button>
+
+        <table class="table table-striped table-hover shadow-sm">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Lead ID</th>
+                    <th>Assigned User</th>
+                    <th>Notes</th>
+                    <th>Status</th>
+                    <th>Scheduled At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="followupsTableBody">
+                <!-- FollowUps will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add/Edit FollowUp Modal -->
+<div class="modal fade" id="followupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="followupModalTitle">Add/Edit Follow-Up</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="followupForm">
+                    <input type="hidden" id="followupId">
+                    <div class="mb-3">
+                        <label>Lead ID</label>
+                        <input type="number" class="form-control" id="followupLeadId" required>
+                    </div>
+                     <div class="mb-3">
+                        <label for="followupUserId" class="form-label">Assigned User</label>
+                        <select class="form-select" id="followupUserId">
+                            <option value="">-- Unassigned --</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>Notes</label>
+                        <textarea class="form-control" id="followupNotes" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label>Status</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="followupCompleted">
+                            <label class="form-check-label" for="followupCompleted">Completed</label>
+                        </div>
+                    </div>
+                     <div class="mb-3">
+                        <label>Scheduled At</label>
+                        <input type="datetime-local" class="form-control" id="followupScheduledAt">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/login';
+        return;
+    }
+
+    const followupModal = new bootstrap.Modal(document.getElementById('followupModal'));
+
+    // Dynamically load sidebar
+    fetch('/dashboard')
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const sidebar = doc.querySelector('.sidebar');
+            if(sidebar) {
+                const currentLink = sidebar.querySelector('a[href="/follow-ups"]');
+                if(currentLink) currentLink.classList.add('active');
+
+                const dashboardLink = sidebar.querySelector('a[href="/dashboard"]');
+                if(dashboardLink) dashboardLink.classList.remove('active');
+
+                document.getElementById('sidebar-container').replaceWith(sidebar);
+
+                document.getElementById('logoutBtn').addEventListener('click', () => {
+                    localStorage.removeItem('token');
+                    window.location.href = '/login';
+                });
+            }
+        });
+
+    async function loadUsersForDropdown() {
+        const response = await fetch('/api/users/list', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const users = await response.json();
+            const select = document.getElementById('followupUserId');
+            users.forEach(user => {
+                select.innerHTML += `<option value="${user.id}">${user.name} (${user.email})</option>`;
+            });
+        }
+    }
+
+    async function loadFollowups() {
+        const response = await fetch('/api/follow-ups', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const followups = await response.json();
+            const tbody = document.getElementById('followupsTableBody');
+            tbody.innerHTML = '';
+            followups.forEach(fu => {
+                const leadId = fu.lead ? fu.lead.id : '';
+                const userStr = fu.user ? `${fu.user.name}` : 'Unassigned';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${fu.id}</td>
+                        <td>${leadId}</td>
+                        <td>${userStr}</td>
+                        <td>${fu.notes || ''}</td>
+                        <td><span class="badge bg-${fu.completed ? 'success' : 'warning'}">${fu.completed ? 'Completed' : 'Pending'}</span></td>
+                        <td>${fu.scheduledAt ? new Date(fu.scheduledAt).toLocaleString() : ''}</td>
+                        <td>
+                            <button class="btn btn-sm btn-info" onclick='editFollowup(${JSON.stringify(fu).replace(/'/g, "\\'")})'>Edit</button>
+                            <button class="btn btn-sm btn-danger" onclick='deleteFollowup(${fu.id})'>Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+    }
+
+    document.getElementById('addFollowupBtn').addEventListener('click', () => {
+        document.getElementById('followupForm').reset();
+        document.getElementById('followupId').value = '';
+        document.getElementById('followupModalTitle').innerText = 'Add New Follow-Up';
+    });
+
+    document.getElementById('followupForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('followupId').value;
+        const followup = {
+            notes: document.getElementById('followupNotes').value,
+            completed: document.getElementById('followupCompleted').checked,
+            scheduledAt: document.getElementById('followupScheduledAt').value || null
+        };
+
+        const leadId = document.getElementById('followupLeadId').value;
+        if(leadId) followup.lead = { id: parseInt(leadId) };
+
+        const userId = document.getElementById('followupUserId').value;
+        if(userId) followup.user = { id: parseInt(userId) };
+
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/follow-ups/${id}` : '/api/follow-ups';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(followup)
+        });
+
+        if (response.ok) {
+            followupModal.hide();
+            loadFollowups();
+        } else {
+            const errorText = await response.text();
+            console.error('Save failed:', errorText);
+            alert('Failed to save follow-up. ' + errorText);
+        }
+    });
+
+    window.editFollowup = function(fu) {
+        document.getElementById('followupId').value = fu.id;
+        document.getElementById('followupLeadId').value = fu.lead ? fu.lead.id : '';
+        document.getElementById('followupUserId').value = fu.user ? fu.user.id : '';
+        document.getElementById('followupNotes').value = fu.notes || '';
+        document.getElementById('followupCompleted').checked = fu.completed || false;
+        document.getElementById('followupScheduledAt').value = fu.scheduledAt ? fu.scheduledAt.substring(0, 16) : '';
+        document.getElementById('followupModalTitle').innerText = 'Edit Follow-Up';
+        followupModal.show();
+    };
+
+    window.deleteFollowup = async function(id) {
+        if (confirm('Are you sure you want to delete this follow-up?')) {
+            const response = await fetch(`/api/follow-ups/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                loadFollowups();
+            } else {
+                alert('Failed to delete follow-up');
+            }
+        }
+    };
+
+    loadUsersForDropdown();
+    loadFollowups();
+});
+</script>
+
+</body>
+</html>

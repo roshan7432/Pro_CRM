@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f8f9fa;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #343a40;
+            color: white;
+            flex-shrink: 0;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #495057;
+            margin-bottom: 10px;
+        }
+        .sidebar a {
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 12px 20px;
+            display: block;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            color: white;
+            background-color: #495057;
+            border-left: 4px solid #0d6efd;
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        .logout-container {
+            margin-top: auto;
+            border-top: 1px solid #495057;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <h3>CRM System</h3>
+    </div>
+    <ul class="nav flex-column mb-auto" id="navbarNav">
+        <li class="nav-item">
+            <a class="nav-link active" href="/dashboard">Dashboard</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="/leads">Leads</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="/deals">Deals</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="/tasks">Tasks</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="/follow-ups">Follow-Ups</a>
+        </li>
+    </ul>
+    <div class="logout-container">
+        <a class="nav-link text-danger" href="#" id="logoutBtn">Logout</a>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="container-fluid">
+        <h2 class="mb-4">Dashboard</h2>
+        <div class="row" id="statsContainer">
+            <!-- Stats will be populated here -->
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async function () {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        function parseJwt(token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        const userPayload = parseJwt(token);
+        const isAdmin = userPayload && userPayload.sub.includes('admin');
+
+        if (isAdmin) {
+            const usersLink = `<li class="nav-item"><a class="nav-link" href="/users">Users</a></li>`;
+            document.getElementById('navbarNav').insertAdjacentHTML('beforeend', usersLink);
+        }
+
+        const response = await fetch('/api/dashboard/stats', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const stats = await response.json();
+            const container = document.getElementById('statsContainer');
+
+            let pipelineHtml = '<ul class="list-group list-group-flush">';
+            for (const [stage, count] of Object.entries(stats.pipelineStats || {})) {
+                pipelineHtml += `<li class="list-group-item d-flex justify-content-between align-items-center">${stage} <span class="badge bg-primary rounded-pill">${count}</span></li>`;
+            }
+            pipelineHtml += '</ul>';
+
+            container.innerHTML = `
+                <div class="col-md-4 mb-4">
+                    <div class="card text-white bg-primary h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Leads</h5>
+                            <p class="card-text display-4">${stats.totalLeads}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card text-white bg-success h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">Won Leads</h5>
+                            <p class="card-text display-4">${stats.wonLeads}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card text-white bg-danger h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">Lost Leads</h5>
+                            <p class="card-text display-4">${stats.lostLeads}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title text-muted">Total Revenue</h5>
+                            <p class="card-text display-4 text-success">$${stats.totalRevenue || 0}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body p-0">
+                            <h5 class="card-title p-3 m-0 border-bottom text-muted">Pipeline Stats</h5>
+                            ${pipelineHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+             if(response.status === 403 || response.status === 401) {
+                  localStorage.removeItem('token');
+                  window.location.href = '/login';
+             }
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', function() {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        });
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
